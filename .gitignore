@@ -1,0 +1,9 @@
+# Binaries
+/gotube
+*.exe
+
+# OS
+.DS_Store
+
+# Go
+go.sum

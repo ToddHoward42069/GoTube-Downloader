@@ -1,0 +1,8 @@
+Package: gotube
+Version: 1.0.0
+Section: video
+Priority: optional
+Architecture: amd64
+Maintainer: GoTube Developer <dev@gotube.local>
+Description: A resilient, cross-platform YouTube downloader built with Go and Fyne.
+Depends: libc6, libgl1, libx11-6

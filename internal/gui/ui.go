@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	_ "embed" // Needed for embedding
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/canvas"
@@ -23,24 +25,47 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
+//go:embed icon.svg
+var iconData []byte
+
 func StartApp() {
 	a := app.NewWithID("com.github.gotube.downloader")
+
+	// Set App Icon (Window title bar, Taskbar, etc.)
+	if len(iconData) > 0 {
+		iconRes := fyne.NewStaticResource("icon.svg", iconData)
+		a.SetIcon(iconRes)
+	}
+
 	w := a.NewWindow("GoTube")
 	w.Resize(fyne.NewSize(550, 700))
 
+	// --- Init ---
 	db, _ := database.InitDB()
 	binMgr := updater.NewBinaryManager()
 	engine := downloader.NewEngine(binMgr.GetYtDlpPath())
 	settings := db.LoadSettings()
-	if settings.LastSavePath == "" { settings.LastSavePath, _ = os.Getwd() }
-	if settings.Language != "" { locales.SetLanguage(settings.Language) } else { locales.SetLanguage("English") }
+	if settings.LastSavePath == "" {
+		settings.LastSavePath, _ = os.Getwd()
+	}
+	if settings.Language != "" {
+		locales.SetLanguage(settings.Language)
+	} else {
+		locales.SetLanguage("English")
+	}
 
+	// --- Bindings ---
 	progressBind := binding.NewFloat()
 	statusBind := binding.NewString()
-	logData := "" 
+	logData := ""
 	statusBind.Set(locales.Get("ready"))
 
+	// --- UI Components ---
+
+	// Hero
 	urlEntry := widget.NewEntry()
+
+	// Preview
 	previewImage := canvas.NewImageFromResource(theme.FileImageIcon())
 	previewImage.FillMode = canvas.ImageFillContain
 	previewImage.SetMinSize(fyne.NewSize(280, 158))
@@ -51,10 +76,13 @@ func StartApp() {
 	previewInfo.Alignment = fyne.TextAlignCenter
 	previewInfo.TextStyle = fyne.TextStyle{Italic: true}
 
+	// Format Selectors
 	formatSelect := widget.NewSelect([]string{locales.Get("format_video"), locales.Get("format_audio")}, nil)
 	formatSelect.Selected = locales.Get("format_video")
+
 	detailSelect := widget.NewSelect([]string{"Best", "4k", "1080p", "720p"}, nil)
 	detailSelect.Selected = "Best"
+
 	formatSelect.OnChanged = func(s string) {
 		if s == locales.Get("format_audio") {
 			detailSelect.Options = []string{"Best", "mp3", "m4a"}
@@ -66,9 +94,10 @@ func StartApp() {
 		detailSelect.Refresh()
 	}
 
-	playlistCheck := widget.NewCheck("", nil)
+	playlistCheck := widget.NewCheck("", nil) // Text set by update function
 	playlistCheck.Disable()
 
+	// Path
 	pathEntry := widget.NewEntry()
 	pathEntry.SetText(settings.LastSavePath)
 	pathEntry.Disable()
@@ -83,16 +112,21 @@ func StartApp() {
 	})
 	pathContainer := container.NewBorder(nil, nil, nil, pathBtn, pathEntry)
 
+	// Advanced
 	trimStart := widget.NewEntry()
 	trimStart.SetPlaceHolder("00:00:00")
 	trimEnd := widget.NewEntry()
 	trimEnd.SetPlaceHolder("00:00:00")
+
 	clientSelect := widget.NewSelect([]string{"Web", "Android", "iOS"}, nil)
 	clientSelect.Selected = "Web"
-	if settings.ClientSpoof != "" { clientSelect.Selected = settings.ClientSpoof }
+	if settings.ClientSpoof != "" {
+		clientSelect.Selected = settings.ClientSpoof
+	}
+
 	checkSponsor := widget.NewCheck("", nil)
 	checkSafe := widget.NewCheck("", nil)
-	
+
 	cookieBtn := widget.NewButton("", func() {
 		dialog.ShowFileOpen(func(r fyne.URIReadCloser, err error) {
 			if r != nil {
@@ -113,34 +147,49 @@ func StartApp() {
 	})
 	viewLogsBtn.Importance = widget.LowImportance
 
+	// Labels that need dynamic updates
 	labelQuality := widget.NewLabel("")
 	labelFormat := widget.NewLabel("")
 	labelSaveTo := widget.NewLabel("")
 	labelTrimStart := widget.NewLabel("")
 	labelTrimEnd := widget.NewLabel("")
 	labelClient := widget.NewLabel("")
-	
+
+	// Buttons
 	checkBtn := widget.NewButtonWithIcon("", theme.SearchIcon(), nil)
 	downloadBtn := widget.NewButtonWithIcon("", theme.DownloadIcon(), nil)
 	downloadBtn.Importance = widget.HighImportance
 	updateBtn := widget.NewButton("", nil)
-	advItem := widget.NewAccordionItem("", nil) 
-	langSelect := widget.NewSelect([]string{"English", "German"}, nil)
-	if settings.Language == "German" { langSelect.Selected = "German" } else { langSelect.Selected = "English" }
 
+	// Accordion Item
+	advItem := widget.NewAccordionItem("", nil)
+
+	// Language Selector
+	langSelect := widget.NewSelect([]string{"English", "German"}, nil)
+	if settings.Language == "German" {
+		langSelect.Selected = "German"
+	} else {
+		langSelect.Selected = "English"
+	}
+
+	// --- REFRESH TEXT FUNCTION ---
 	updateTexts := func() {
 		urlEntry.SetPlaceHolder(locales.Get("placeholder"))
 		labelFormat.SetText(locales.Get("mode"))
 		labelQuality.SetText(locales.Get("quality"))
 		playlistCheck.SetText(locales.Get("playlist"))
 		labelSaveTo.SetText(locales.Get("save_to"))
+
 		advItem.Title = locales.Get("adv_options")
+
 		labelTrimStart.SetText(locales.Get("trim_start"))
 		labelTrimEnd.SetText(locales.Get("trim_end"))
 		labelClient.SetText(locales.Get("client"))
+
 		cookieBtn.SetText(locales.Get("cookies"))
 		checkSponsor.SetText(locales.Get("sponsor"))
 		checkSafe.SetText(locales.Get("safe_mode"))
+
 		viewLogsBtn.SetText(locales.Get("view_logs"))
 		downloadBtn.SetText(locales.Get("btn_download"))
 		updateBtn.SetText(locales.Get("update_btn"))
@@ -157,9 +206,13 @@ func StartApp() {
 	}
 	updateTexts()
 
+	// --- LOGIC ---
+
 	var fetchTimer *time.Timer
 	performFetch := func(url string) {
-		if url == "" || !strings.HasPrefix(url, "http") { return }
+		if url == "" || !strings.HasPrefix(url, "http") {
+			return
+		}
 		statusBind.Set(locales.Get("fetching"))
 		go func() {
 			meta, err := engine.GetMetadata(url)
@@ -188,15 +241,23 @@ func StartApp() {
 	}
 
 	urlEntry.OnChanged = func(s string) {
-		if fetchTimer != nil { fetchTimer.Stop() }
+		if fetchTimer != nil {
+			fetchTimer.Stop()
+		}
 		fetchTimer = time.AfterFunc(500*time.Millisecond, func() { performFetch(s) })
 	}
 	checkBtn.OnTapped = func() { performFetch(urlEntry.Text) }
 
 	downloadBtn.OnTapped = func() {
-		if urlEntry.Text == "" { return }
+		if urlEntry.Text == "" {
+			return
+		}
+
 		mode := "Video"
-		if formatSelect.Selected == locales.Get("format_audio") { mode = "Audio" }
+		if formatSelect.Selected == locales.Get("format_audio") {
+			mode = "Audio"
+		}
+
 		req := models.DownloadConfig{
 			URL:             urlEntry.Text,
 			OutputPath:      settings.LastSavePath,
@@ -211,15 +272,21 @@ func StartApp() {
 			IsPlaylist:      playlistCheck.Checked,
 		}
 		db.SaveSetting("ClientSpoof", clientSelect.Selected)
+
 		downloadBtn.Disable()
 		progressBind.Set(0.0)
-		logData = "Starting..." 
+		logData = "Starting..."
+
 		go func() {
 			if currentTitle == "Unknown Video" {
-				if meta, err := engine.GetMetadata(req.URL); err == nil { currentTitle = meta.Title }
+				if meta, err := engine.GetMetadata(req.URL); err == nil {
+					currentTitle = meta.Title
+				}
 			}
 			err := engine.Download(req, func(update models.ProgressUpdate) {
-				if update.Percent > 0 { progressBind.Set(update.Percent) }
+				if update.Percent > 0 {
+					progressBind.Set(update.Percent)
+				}
 				statusBind.Set(update.Stage + "...")
 				logData += update.Text + "\n"
 			})
@@ -235,21 +302,29 @@ func StartApp() {
 			downloadBtn.Enable()
 		}()
 	}
+
 	updateBtn.OnTapped = func() {
 		p := dialog.NewProgressInfinite("Updating", "Checking GitHub...", w)
 		p.Show()
 		go func() {
 			err := binMgr.UpdateBinary(func(msg string) { fmt.Println(msg) })
 			p.Hide()
-			if err != nil { dialog.ShowError(err, w) } else { dialog.ShowInformation("Success", "Core updated.", w) }
+			if err != nil {
+				dialog.ShowError(err, w)
+			} else {
+				dialog.ShowInformation("Success", "Core updated.", w)
+			}
 		}()
 	}
 
+	// --- LAYOUT ---
 	topRow := container.NewBorder(nil, nil, nil, checkBtn, urlEntry)
-	settingsGrid := container.NewGridWithColumns(2, 
+
+	settingsGrid := container.NewGridWithColumns(2,
 		container.NewVBox(labelFormat, formatSelect),
 		container.NewVBox(labelQuality, detailSelect),
 	)
+
 	advContent := container.NewGridWithColumns(2,
 		labelTrimStart, trimStart, labelTrimEnd, trimEnd,
 		labelClient, clientSelect, checkSponsor, checkSafe, playlistCheck,
@@ -275,14 +350,22 @@ func StartApp() {
 	statusLabel := widget.NewLabelWithData(statusBind)
 	statusLabel.Alignment = fyne.TextAlignCenter
 	progressBar := widget.NewProgressBarWithData(progressBind)
+
 	footer := container.NewVBox(
 		widget.NewSeparator(),
 		statusLabel,
 		progressBar,
 		container.NewGridWithColumns(2, viewLogsBtn, downloadBtn),
 	)
-	mainLayout := container.NewBorder(nil, container.NewPadded(footer), nil, nil, container.NewVScroll(container.NewPadded(formContent)))
 
+	mainLayout := container.NewBorder(
+		nil,
+		container.NewPadded(footer),
+		nil, nil,
+		container.NewVScroll(container.NewPadded(formContent)),
+	)
+
+	// --- HISTORY ---
 	historyList := widget.NewList(
 		func() int { return len(db.GetHistory()) },
 		func() fyne.CanvasObject {
@@ -301,6 +384,7 @@ func StartApp() {
 		},
 	)
 
+	// --- SETTINGS TAB ---
 	settingsContent := container.NewVBox(
 		widget.NewCard(locales.Get("tab_system"), "", container.NewVBox(
 			widget.NewLabel("Language / Sprache"),
@@ -314,6 +398,7 @@ func StartApp() {
 	t1 := container.NewTabItemWithIcon(locales.Get("tab_download"), theme.DownloadIcon(), mainLayout)
 	t2 := container.NewTabItemWithIcon(locales.Get("tab_history"), theme.HistoryIcon(), historyList)
 	t3 := container.NewTabItemWithIcon(locales.Get("tab_system"), theme.SettingsIcon(), settingsContent)
+
 	tabs := container.NewAppTabs(t1, t2, t3)
 
 	originalUpdateTexts := updateTexts

@@ -30,6 +30,17 @@ var en = map[string]string{
 	"failed":       "Failed",
 	"format_video": "Video (MP4)",
 	"format_audio": "Audio",
+	"subs_embed":   "Embed Subtitles",
+	"subs_auto":    "Auto-Generated",
+	"subs_lang":    "Language:",
+
+	// Playlist Selector
+	"pl_select_btn":  "Select Videos",
+	"pl_title":       "Select Videos to Download",
+	"pl_selected":    "Selected: %d",
+	"pl_confirm":     "Confirm",
+	"pl_select_all":  "Select All",
+	"pl_select_none": "Select None",
 }
 
 var de = map[string]string{
@@ -60,6 +71,17 @@ var de = map[string]string{
 	"failed":       "Fehlgeschlagen",
 	"format_video": "Video (MP4)",
 	"format_audio": "Audio",
+	"subs_embed":   "Untertitel einbetten",
+	"subs_auto":    "Automatisch generiert",
+	"subs_lang":    "Sprache:",
+
+	// Playlist Selector
+	"pl_select_btn":  "Videos auswählen",
+	"pl_title":       "Videos auswählen",
+	"pl_selected":    "Ausgewählt: %d",
+	"pl_confirm":     "Bestätigen",
+	"pl_select_all":  "Alle",
+	"pl_select_none": "Keine",
 }
 
 func SetLanguage(lang string) {
@@ -76,6 +98,8 @@ func Get(key string) string {
 		dict = de
 	}
 	val, ok := dict[key]
-	if !ok { return key }
+	if !ok {
+		return key
+	}
 	return val
 }

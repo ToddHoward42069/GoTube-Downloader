@@ -11,17 +11,33 @@ type DownloadConfig struct {
 	Client          string
 	CookiesPath     string
 	SafeMode        bool
-	IsPlaylist      bool
+
+	// Playlist Logic
+	IsPlaylist    bool
+	PlaylistItems string // e.g. "1,2,5-10"
+
+	// Subtitles
+	EmbedSubs   bool
+	AutoSubs    bool
+	SubLanguage string
+}
+
+// Represents a single video inside a playlist
+type PlaylistEntry struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	// Duration might be null in flat-playlist, so we omit it to be safe
 }
 
 type VideoMetadata struct {
-	ID           string `json:"id"`
-	Title        string `json:"title"`
-	Uploader     string `json:"uploader"`
-	Duration     int    `json:"duration"`
-	ThumbnailURL string `json:"thumbnail"`
-	Type         string `json:"_type"`
-	EntryCount   int    `json:"playlist_count"`
+	ID           string          `json:"id"`
+	Title        string          `json:"title"`
+	Uploader     string          `json:"uploader"`
+	Duration     int             `json:"duration"`
+	ThumbnailURL string          `json:"thumbnail"`
+	Type         string          `json:"_type"`
+	EntryCount   int             `json:"playlist_count"`
+	Entries      []PlaylistEntry `json:"entries"` // The list of videos
 }
 
 type ProgressUpdate struct {

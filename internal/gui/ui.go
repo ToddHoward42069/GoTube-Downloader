@@ -63,7 +63,7 @@ func StartApp(a fyne.App) {
 		locales.SetLanguage("English")
 	}
 
-	// --- Bindings & State ---
+	// --- Bindings ---
 	progressBind := binding.NewFloat()
 	statusBind := binding.NewString()
 	statusBind.Set(locales.Get("ready"))
@@ -71,10 +71,12 @@ func StartApp(a fyne.App) {
 
 	// Playlist State
 	var currentPlaylistEntries []models.PlaylistEntry
-	var selectedPlaylistIndices []string // Stored as "1", "2", etc.
+	var selectedPlaylistIndices []string
 	isPlaylistMode := false
 
-	// --- UI COMPONENTS ---
+	// ==========================================
+	//           MAIN TAB COMPONENTS
+	// ==========================================
 
 	urlEntry := widget.NewEntry()
 	urlEntry.SetPlaceHolder("https://youtube.com/...")
@@ -104,41 +106,28 @@ func StartApp(a fyne.App) {
 		detailSelect.Refresh()
 	}
 
-	// PLAYLIST SELECTOR BUTTON
 	playlistBtn := widget.NewButton(locales.Get("pl_select_btn"), nil)
-	playlistBtn.Disable() // Enabled only when playlist detected
+	playlistBtn.Disable()
 
-	// Playlist Dialog Logic
+	// Playlist Dialog logic remains same...
 	playlistBtn.OnTapped = func() {
 		if len(currentPlaylistEntries) == 0 {
 			return
 		}
-
-		// Temporary state for the dialog
 		selectionState := make(map[int]bool)
 		for i := range currentPlaylistEntries {
 			selectionState[i] = true
-		} // Default select all
-
+		}
 		labelCount := widget.NewLabel(fmt.Sprintf(locales.Get("pl_selected"), len(currentPlaylistEntries)))
-
-		// Scrollable List of Checkboxes
-		// We use a VBox inside a Scroll, populated manually for simplicity since lists inside dialogs can be tricky
-		// For massive playlists (500+), a virtual List is better, but for <100, a VBox is fine.
-		// Let's use a Virtual List for performance.
-
 		vList := widget.NewList(
 			func() int { return len(currentPlaylistEntries) },
-			func() fyne.CanvasObject {
-				return widget.NewCheck("Video Title", nil)
-			},
+			func() fyne.CanvasObject { return widget.NewCheck("Video Title", nil) },
 			func(i int, o fyne.CanvasObject) {
 				check := o.(*widget.Check)
 				check.Text = fmt.Sprintf("%d. %s", i+1, currentPlaylistEntries[i].Title)
 				check.Checked = selectionState[i]
 				check.OnChanged = func(b bool) {
 					selectionState[i] = b
-					// Update count label
 					count := 0
 					for _, v := range selectionState {
 						if v {
@@ -147,11 +136,9 @@ func StartApp(a fyne.App) {
 					}
 					labelCount.SetText(fmt.Sprintf(locales.Get("pl_selected"), count))
 				}
-				check.Refresh() // Critical for recycling
+				check.Refresh()
 			},
 		)
-
-		// Dialog Buttons
 		btnAll := widget.NewButton(locales.Get("pl_select_all"), func() {
 			for i := range currentPlaylistEntries {
 				selectionState[i] = true
@@ -166,25 +153,17 @@ func StartApp(a fyne.App) {
 			vList.Refresh()
 			labelCount.SetText(fmt.Sprintf(locales.Get("pl_selected"), 0))
 		})
-
-		content := container.NewBorder(
-			container.NewVBox(labelCount, container.NewHBox(btnAll, btnNone)),
-			nil, nil, nil,
-			vList,
-		)
-
+		content := container.NewBorder(container.NewVBox(labelCount, container.NewHBox(btnAll, btnNone)), nil, nil, nil, vList)
 		d := dialog.NewCustomConfirm(locales.Get("pl_title"), locales.Get("pl_confirm"), "Cancel", content, func(b bool) {
 			if b {
-				// Commit Selection
 				selectedPlaylistIndices = []string{}
 				count := 0
 				for i, selected := range selectionState {
 					if selected {
-						selectedPlaylistIndices = append(selectedPlaylistIndices, fmt.Sprintf("%d", i+1)) // 1-based index
+						selectedPlaylistIndices = append(selectedPlaylistIndices, fmt.Sprintf("%d", i+1))
 						count++
 					}
 				}
-				// Update Main Button Text
 				playlistBtn.SetText(fmt.Sprintf("%s (%d)", locales.Get("pl_select_btn"), count))
 			}
 		}, w)
@@ -217,7 +196,6 @@ func StartApp(a fyne.App) {
 	}
 	checkSponsor := widget.NewCheck("", nil)
 	checkSafe := widget.NewCheck("", nil)
-
 	checkEmbedSubs := widget.NewCheck("", nil)
 	checkAutoSubs := widget.NewCheck("", nil)
 	checkAutoSubs.Disable()
@@ -239,6 +217,71 @@ func StartApp(a fyne.App) {
 			}
 		}, w)
 	})
+
+	// ==========================================
+	//           BATCH TAB COMPONENTS
+	// ==========================================
+	// We create INDEPENDENT widgets for the Batch tab so it is self-sufficient.
+
+	batchEntry := widget.NewMultiLineEntry()
+	batchEntry.SetPlaceHolder("https://youtube.com/video1\nhttps://youtube.com/video2\n...")
+	batchEntry.SetMinRowsVisible(8)
+
+	batchFormatSelect := widget.NewSelect([]string{locales.Get("format_video"), locales.Get("format_audio")}, nil)
+	batchFormatSelect.Selected = locales.Get("format_video")
+	batchDetailSelect := widget.NewSelect([]string{"Best", "4k", "1080p", "720p"}, nil)
+	batchDetailSelect.Selected = "Best"
+	batchFormatSelect.OnChanged = func(s string) {
+		if s == locales.Get("format_audio") {
+			batchDetailSelect.Options = []string{"Best", "mp3", "m4a"}
+			batchDetailSelect.Selected = "mp3"
+		} else {
+			batchDetailSelect.Options = []string{"Best", "4k", "1080p", "720p"}
+			batchDetailSelect.Selected = "Best"
+		}
+		batchDetailSelect.Refresh()
+	}
+
+	// Batch Path Selector
+	batchPathEntry := widget.NewEntry()
+	batchPathEntry.SetText(settings.LastSavePath)
+	batchPathEntry.Disable()
+	batchPathBtn := widget.NewButtonWithIcon("", theme.FolderOpenIcon(), func() {
+		dialog.ShowFolderOpen(func(uri fyne.ListableURI, err error) {
+			if uri != nil {
+				// Update both inputs to keep them in sync visually
+				batchPathEntry.SetText(uri.Path())
+				pathEntry.SetText(uri.Path())
+				settings.LastSavePath = uri.Path()
+				db.SaveSetting("LastSavePath", settings.LastSavePath)
+			}
+		}, w)
+	})
+	batchPathContainer := container.NewBorder(nil, nil, nil, batchPathBtn, batchPathEntry)
+
+	// Batch Advanced Options (Separate instances)
+	batchClientSelect := widget.NewSelect([]string{"Web", "Android", "iOS"}, nil)
+	batchClientSelect.Selected = clientSelect.Selected
+	batchCheckSponsor := widget.NewCheck("", nil)
+	batchCheckSafe := widget.NewCheck("", nil)
+	batchCookieBtn := widget.NewButton("", func() {
+		dialog.ShowFileOpen(func(r fyne.URIReadCloser, err error) {
+			if r != nil {
+				settings.CookiesPath = r.URI().Path()
+				db.SaveSetting("CookiesPath", settings.CookiesPath)
+			}
+		}, w)
+	})
+
+	batchProgress := widget.NewProgressBar()
+	batchStatus := widget.NewLabel("Ready")
+	batchStatus.Alignment = fyne.TextAlignCenter
+	batchBtn := widget.NewButtonWithIcon("Start Batch", theme.MediaPlayIcon(), nil)
+	batchBtn.Importance = widget.HighImportance
+
+	// ==========================================
+	//           SHARED LOGIC
+	// ==========================================
 
 	consoleEntry := widget.NewMultiLineEntry()
 	consoleEntry.Disable()
@@ -266,6 +309,8 @@ func StartApp(a fyne.App) {
 	updateBtn := widget.NewButton("", nil)
 
 	advItem := widget.NewAccordionItem("", nil)
+	batchAdvItem := widget.NewAccordionItem("", nil) // Batch specific accordion
+
 	langSelect := widget.NewSelect([]string{"English", "German"}, nil)
 	if settings.Language == "German" {
 		langSelect.Selected = "German"
@@ -278,7 +323,6 @@ func StartApp(a fyne.App) {
 		labelQuality.SetText(locales.Get("quality"))
 		labelSaveTo.SetText(locales.Get("save_to"))
 
-		// Playlist button text
 		if isPlaylistMode {
 			playlistBtn.SetText(fmt.Sprintf("%s (%d)", locales.Get("pl_select_btn"), len(selectedPlaylistIndices)))
 		} else {
@@ -286,12 +330,20 @@ func StartApp(a fyne.App) {
 		}
 
 		advItem.Title = locales.Get("adv_options")
+		batchAdvItem.Title = locales.Get("adv_options") // Update batch title too
+
 		labelTrimStart.SetText(locales.Get("trim_start"))
 		labelTrimEnd.SetText(locales.Get("trim_end"))
 		labelClient.SetText(locales.Get("client"))
 		cookieBtn.SetText(locales.Get("cookies"))
+		batchCookieBtn.SetText(locales.Get("cookies")) // Batch button text
+
 		checkSponsor.SetText(locales.Get("sponsor"))
+		batchCheckSponsor.SetText(locales.Get("sponsor")) // Batch check text
+
 		checkSafe.SetText(locales.Get("safe_mode"))
+		batchCheckSafe.SetText(locales.Get("safe_mode")) // Batch check text
+
 		downloadBtn.SetText(locales.Get("btn_download"))
 		updateBtn.SetText(locales.Get("update_btn"))
 		viewLogsBtn.SetText(locales.Get("view_logs"))
@@ -307,7 +359,13 @@ func StartApp(a fyne.App) {
 		formatSelect.Options = []string{locales.Get("format_video"), locales.Get("format_audio")}
 		formatSelect.Selected = locales.Get("format_video")
 		formatSelect.Refresh()
+
+		batchFormatSelect.Options = []string{locales.Get("format_video"), locales.Get("format_audio")}
+		batchFormatSelect.Selected = locales.Get("format_video")
+		batchFormatSelect.Refresh()
+
 		advItem.Detail.Refresh()
+		batchAdvItem.Detail.Refresh()
 	}
 	updateTexts()
 
@@ -340,18 +398,14 @@ func StartApp(a fyne.App) {
 			statusBind.Set(locales.Get("meta_loaded"))
 			previewTitle.SetText(meta.Title)
 
-			// Display info
 			if meta.Type == "playlist" {
 				isPlaylistMode = true
 				currentPlaylistEntries = meta.Entries
 				previewInfo.SetText(fmt.Sprintf("Playlist • %d Videos", meta.EntryCount))
-
-				// Reset Selection
 				selectedPlaylistIndices = []string{}
 				for i := 1; i <= meta.EntryCount; i++ {
 					selectedPlaylistIndices = append(selectedPlaylistIndices, fmt.Sprintf("%d", i))
 				}
-
 				playlistBtn.Enable()
 				playlistBtn.SetText(fmt.Sprintf("%s (%d)", locales.Get("pl_select_btn"), meta.EntryCount))
 			} else {
@@ -383,12 +437,11 @@ func StartApp(a fyne.App) {
 		if urlEntry.Text == "" {
 			return
 		}
+
 		mode := "Video"
 		if formatSelect.Selected == locales.Get("format_audio") {
 			mode = "Audio"
 		}
-
-		// Build Index String
 		idxStr := ""
 		if isPlaylistMode && len(selectedPlaylistIndices) > 0 {
 			idxStr = strings.Join(selectedPlaylistIndices, ",")
@@ -414,7 +467,6 @@ func StartApp(a fyne.App) {
 		db.SaveSetting("ClientSpoof", clientSelect.Selected)
 		downloadBtn.Disable()
 		progressBind.Set(0.0)
-
 		logger.Clear()
 		logger.Write("Starting download...")
 
@@ -424,7 +476,6 @@ func StartApp(a fyne.App) {
 					currentTitle = meta.Title
 				}
 			}
-
 			err := engine.Download(req, func(update models.ProgressUpdate) {
 				if update.Percent > 0 {
 					progressBind.Set(update.Percent)
@@ -432,7 +483,6 @@ func StartApp(a fyne.App) {
 				statusBind.Set(update.Stage + "...")
 				logger.Write(update.Text)
 			})
-
 			if err != nil {
 				statusBind.Set(locales.Get("failed"))
 				logger.Write("ERROR: " + err.Error())
@@ -447,6 +497,71 @@ func StartApp(a fyne.App) {
 			downloadBtn.Enable()
 		}()
 	}
+
+	// --- BATCH DOWNLOAD LOGIC ---
+	batchBtn.OnTapped = func() {
+		raw := batchEntry.Text
+		if raw == "" {
+			return
+		}
+		lines := strings.Split(raw, "\n")
+		var urls []string
+		for _, l := range lines {
+			if strings.TrimSpace(l) != "" {
+				urls = append(urls, strings.TrimSpace(l))
+			}
+		}
+		if len(urls) == 0 {
+			return
+		}
+
+		batchBtn.Disable()
+		batchProgress.SetValue(0)
+
+		// USE BATCH SPECIFIC WIDGETS
+		mode := "Video"
+		if batchFormatSelect.Selected == locales.Get("format_audio") {
+			mode = "Audio"
+		}
+
+		baseReq := models.DownloadConfig{
+			OutputPath:      settings.LastSavePath, // Uses global sync'd path
+			DownloadMode:    mode,
+			Quality:         batchDetailSelect.Selected,
+			Client:          batchClientSelect.Selected,
+			CookiesPath:     settings.CookiesPath,
+			SafeMode:        batchCheckSafe.Checked,
+			IsPlaylist:      false,
+			EmbedSubs:       false, // Simplified for batch
+			AutoSubs:        false,
+			UseSponsorBlock: batchCheckSponsor.Checked,
+		}
+
+		go func() {
+			total := float64(len(urls))
+			for i, u := range urls {
+				batchStatus.SetText(fmt.Sprintf("Processing %d/%d: %s", i+1, int(total), u))
+
+				req := baseReq
+				req.URL = u
+
+				title := u
+				if meta, err := engine.GetMetadata(u); err == nil {
+					title = meta.Title
+				}
+
+				engine.Download(req, func(update models.ProgressUpdate) {
+					logger.Write(fmt.Sprintf("[%d/%d] %s", i+1, int(total), update.Text))
+				})
+
+				db.SaveHistory(title, u, req.OutputPath)
+				batchProgress.SetValue(float64(i+1) / total)
+			}
+			batchStatus.SetText("Batch Complete")
+			batchBtn.Enable()
+		}()
+	}
+
 	updateBtn.OnTapped = func() {
 		p := dialog.NewProgressInfinite("Updating", "Checking GitHub...", w)
 		p.Show()
@@ -461,6 +576,8 @@ func StartApp(a fyne.App) {
 		}()
 	}
 
+	// --- MAIN LAYOUT ASSEMBLY ---
+
 	topRow := container.NewBorder(nil, nil, nil, checkBtn, urlEntry)
 
 	unifiedContent := container.NewVBox(
@@ -472,7 +589,6 @@ func StartApp(a fyne.App) {
 		container.NewGridWithColumns(2, formatSelect, detailSelect),
 		labelSaveTo,
 		pathContainer,
-		// Playlist Btn instead of Check
 		playlistBtn,
 	)
 	unifiedCard := widget.NewCard("", "", unifiedContent)
@@ -513,6 +629,42 @@ func StartApp(a fyne.App) {
 		container.NewVScroll(container.NewPadded(formContent)),
 	)
 
+	// --- BATCH LAYOUT ASSEMBLY (Unified Design) ---
+
+	batchSettings := widget.NewCard("Batch Configuration", "", container.NewVBox(
+		container.NewGridWithColumns(2, batchFormatSelect, batchDetailSelect),
+		widget.NewSeparator(),
+		widget.NewLabelWithStyle(locales.Get("save_to"), fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		batchPathContainer, // Self-sufficient path
+	))
+
+	batchAdvContent := container.NewVBox(
+		container.NewGridWithColumns(2, widget.NewLabel("Client:"), batchClientSelect),
+		container.NewGridWithColumns(2, batchCookieBtn, container.NewHBox(batchCheckSponsor, batchCheckSafe)),
+	)
+	batchAdvItem.Detail = batchAdvContent
+	batchAdvExpander := widget.NewAccordion(batchAdvItem)
+
+	batchInputCard := widget.NewCard("Input List", "", container.NewPadded(batchEntry))
+
+	batchFooter := container.NewVBox(
+		batchStatus,
+		batchProgress,
+		batchBtn,
+	)
+
+	batchLayout := container.NewBorder(
+		nil,
+		container.NewPadded(batchFooter),
+		nil, nil,
+		container.NewVScroll(container.NewVBox(
+			batchInputCard,
+			batchSettings,
+			batchAdvExpander,
+		)),
+	)
+
+	// --- HISTORY ---
 	historyList := widget.NewList(
 		func() int { return len(db.GetHistory()) },
 		func() fyne.CanvasObject {
@@ -533,6 +685,7 @@ func StartApp(a fyne.App) {
 		},
 	)
 
+	// --- SETTINGS ---
 	settingsContent := container.NewVBox(
 		widget.NewCard(locales.Get("tab_system"), "", container.NewVBox(
 			widget.NewLabel("Language / Sprache"),
@@ -544,17 +697,18 @@ func StartApp(a fyne.App) {
 	)
 
 	t1 := container.NewTabItemWithIcon(locales.Get("tab_download"), theme.DownloadIcon(), mainLayout)
-	t2 := container.NewTabItemWithIcon(locales.Get("tab_history"), theme.HistoryIcon(), historyList)
-	t3 := container.NewTabItemWithIcon(locales.Get("tab_system"), theme.SettingsIcon(), container.NewPadded(settingsContent))
+	t2 := container.NewTabItemWithIcon("Batch", theme.ListIcon(), container.NewPadded(batchLayout))
+	t3 := container.NewTabItemWithIcon(locales.Get("tab_history"), theme.HistoryIcon(), historyList)
+	t4 := container.NewTabItemWithIcon(locales.Get("tab_system"), theme.SettingsIcon(), container.NewPadded(settingsContent))
 
-	tabs := container.NewAppTabs(t1, t2, t3)
+	tabs := container.NewAppTabs(t1, t2, t3, t4)
 
 	originalUpdateTexts := updateTexts
 	updateTexts = func() {
 		originalUpdateTexts()
 		t1.Text = locales.Get("tab_download")
-		t2.Text = locales.Get("tab_history")
-		t3.Text = locales.Get("tab_system")
+		t3.Text = locales.Get("tab_history")
+		t4.Text = locales.Get("tab_system")
 		tabs.Refresh()
 	}
 

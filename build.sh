@@ -16,6 +16,7 @@ NC='\033[0m' # No Color
 # Flags
 BUILD_DEB=false
 BUILD_APPIMAGE=false
+BUILD_WINDOWS=false
 
 # Parse Arguments
 for arg in "$@"
@@ -23,11 +24,13 @@ do
     case $arg in
         --deb) BUILD_DEB=true ;;
         --appimage) BUILD_APPIMAGE=true ;;
-        --all) BUILD_DEB=true; BUILD_APPIMAGE=true ;;
+        --windows) BUILD_WINDOWS=true ;;
+        --all) BUILD_DEB=true; BUILD_APPIMAGE=true; BUILD_WINDOWS=true ;;
         --help)
         echo "Usage: ./build.sh [options]"
         echo "Options:"
-        echo "  (default)   Build binary only"
+        echo "  (default)   Build Linux binary only"
+        echo "  --windows   Build Windows .exe (requires mingw-w64-gcc)"
         echo "  --deb       Build .deb package"
         echo "  --appimage  Build .AppImage file"
         echo "  --all       Build everything"
@@ -47,7 +50,6 @@ echo -e "${BLUE}--- Tidy Modules ---${NC}"
 go mod tidy
 
 # --- 2. Assets Generation (SVG) ---
-# We generate the icon in internal/gui so go:embed can find it
 echo -e "${BLUE}--- Generating SVG Icon ---${NC}"
 
 generate_icon() {
@@ -60,7 +62,6 @@ EOF
 }
 
 generate_icon
-# Copy it to root for packaging tools
 cp internal/gui/icon.svg icon.svg
 
 # Create .desktop file content
@@ -77,27 +78,54 @@ Categories=Video;Network;
 EOF
 }
 
-# --- 3. Build Binary ---
-echo -e "${GREEN}--- Building Binary ---${NC}"
-if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
-    go build -ldflags "-s -w -H=windowsgui" -o $APP_NAME.exe ./cmd/gotube
-else
+# --- 3. Build Linux Binary (Default) ---
+if [ "$BUILD_WINDOWS" = false ]; then
+    echo -e "${GREEN}--- Building Linux Binary ---${NC}"
     go build -ldflags "-s -w" -o $APP_NAME ./cmd/gotube
+
+    if [ ! -f "$APP_NAME" ]; then
+        echo -e "${RED}Linux build failed!${NC}"
+        exit 1
+    fi
 fi
 
-if [ ! -f "$APP_NAME" ] && [ ! -f "$APP_NAME.exe" ]; then
-    echo -e "${RED}Binary build failed!${NC}"
-    exit 1
+# --- 4. Build Windows Binary ---
+if [ "$BUILD_WINDOWS" = true ]; then
+    echo -e "${GREEN}--- Building Windows Binary ---${NC}"
+    
+    # Check for Mingw
+    if ! command -v x86_64-w64-mingw32-gcc &> /dev/null; then
+        echo -e "${RED}Error: MinGW compiler not found.${NC}"
+        echo "Please install: sudo pacman -S mingw-w64-gcc"
+        exit 1
+    fi
+
+    # Build with CGO enabled for Fyne
+    CGO_ENABLED=1 GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc \
+    go build -ldflags "-s -w -H=windowsgui" -o $APP_NAME.exe ./cmd/gotube
+
+    if [ -f "$APP_NAME.exe" ]; then
+        echo -e "${GREEN}Success: $APP_NAME.exe${NC}"
+        # Move to dist for cleaner output
+        mv $APP_NAME.exe dist/
+    else
+        echo -e "${RED}Windows build failed!${NC}"
+        exit 1
+    fi
 fi
 
-# --- 4. Build .DEB ---
+# --- 5. Build .DEB ---
 if [ "$BUILD_DEB" = true ]; then
     echo -e "${GREEN}--- Building .DEB Package ---${NC}"
     
+    # Ensure linux binary exists if we skipped default build
+    if [ ! -f "$APP_NAME" ]; then
+        go build -ldflags "-s -w" -o $APP_NAME ./cmd/gotube
+    fi
+
     DEB_DIR="dist/deb/${APP_NAME}_${VERSION}_${ARCH}"
     mkdir -p "$DEB_DIR/usr/local/bin"
     mkdir -p "$DEB_DIR/usr/share/applications"
-    # SVG icons go into /usr/share/icons/hicolor/scalable/apps
     mkdir -p "$DEB_DIR/usr/share/icons/hicolor/scalable/apps"
     mkdir -p "$DEB_DIR/DEBIAN"
 
@@ -106,7 +134,6 @@ if [ "$BUILD_DEB" = true ]; then
     
     create_desktop_file
     mv gotube.desktop "$DEB_DIR/usr/share/applications/"
-    
     cp icon.svg "$DEB_DIR/usr/share/icons/hicolor/scalable/apps/gotube.svg"
 
     cat <<EOF > "$DEB_DIR/DEBIAN/control"
@@ -128,9 +155,13 @@ EOF
     fi
 fi
 
-# --- 5. Build AppImage ---
+# --- 6. Build AppImage ---
 if [ "$BUILD_APPIMAGE" = true ]; then
     echo -e "${GREEN}--- Building AppImage ---${NC}"
+    
+    if [ ! -f "$APP_NAME" ]; then
+        go build -ldflags "-s -w" -o $APP_NAME ./cmd/gotube
+    fi
     
     APPDIR="dist/AppDir"
     mkdir -p "$APPDIR/usr/bin"

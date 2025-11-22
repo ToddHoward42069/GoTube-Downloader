@@ -1,6 +1,5 @@
 # Binaries
 /gotube
-*.exe
 
 # OS
 .DS_Store

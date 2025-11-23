@@ -2,7 +2,7 @@
 
 # Config
 APP_NAME="gotube"
-VERSION="1.5.0" # Bumped version
+VERSION="1.5.1"
 DESCRIPTION="A resilient, cross-platform YouTube downloader built with Go and Fyne."
 MAINTAINER="GoTube Developer"
 ARCH="amd64" 

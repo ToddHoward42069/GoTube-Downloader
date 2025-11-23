@@ -9,8 +9,10 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 )
 
+// UPDATE THIS URL TO YOUR PUBLIC REPO
 const repoURL = "https://api.github.com/repos/ToddHoward42069/GoTube-Downloader/releases/latest"
 
 type Release struct {
@@ -19,6 +21,11 @@ type Release struct {
 		Name               string `json:"name"`
 		BrowserDownloadURL string `json:"browser_download_url"`
 	} `json:"assets"`
+}
+
+// isAppImage checks if we are running inside an AppImage
+func isAppImage() bool {
+	return os.Getenv("APPIMAGE") != ""
 }
 
 // CheckAppUpdate returns the new version tag and download URL if an update exists
@@ -38,54 +45,70 @@ func CheckAppUpdate() (string, string, error) {
 		return "", "", err
 	}
 
-	// Simple string comparison. Ideally use semantic versioning library.
-	// Remove 'v' prefix for comparison if needed, but assuming strictly v1.0.0 format
 	if rel.TagName == models.AppVersion || rel.TagName == "" {
-		return "", "", nil // No update
+		return "", "", nil
 	}
 
-	// Find matching asset for current OS
-	targetName := "gotube-linux-amd64"
-	if runtime.GOOS == "windows" {
+	// Determine which file to download
+	var targetName string
+
+	if isAppImage() {
+		// Look for the .AppImage file
+		// build.sh names it: GoTube-VERSION-x86_64.AppImage
+		// We match loosely by suffix to be safe
+		targetName = ".AppImage"
+	} else if runtime.GOOS == "windows" {
 		targetName = "gotube-windows-amd64.exe"
+	} else {
+		targetName = "gotube-linux-amd64"
 	}
 
 	for _, asset := range rel.Assets {
-		if asset.Name == targetName {
-			return rel.TagName, asset.BrowserDownloadURL, nil
+		if isAppImage() {
+			if strings.HasSuffix(asset.Name, ".AppImage") {
+				return rel.TagName, asset.BrowserDownloadURL, nil
+			}
+		} else {
+			if asset.Name == targetName {
+				return rel.TagName, asset.BrowserDownloadURL, nil
+			}
 		}
 	}
 
 	return "", "", fmt.Errorf("no compatible binary found in release")
 }
 
-// DoAppUpdate downloads the new binary and replaces the current one
+// DoAppUpdate downloads the new binary/AppImage and replaces the current one
 func DoAppUpdate(url string, progress func(float64)) error {
-	// 1. Download to temp
+	// 1. Determine Target Path
+	var targetPath string
+	if isAppImage() {
+		// In AppImage mode, we replace the AppImage file itself, not the internal binary
+		targetPath = os.Getenv("APPIMAGE")
+	} else {
+		exe, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		targetPath = exe
+	}
+
+	// 2. Download to .new file
 	resp, err := http.Get(url)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
-	// Calculate progress
 	size := resp.ContentLength
-
-	executable, err := os.Executable()
-	if err != nil {
-		return err
-	}
-
-	// New file path
-	newPath := executable + ".new"
+	newPath := targetPath + ".new"
 
 	out, err := os.Create(newPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot create update file: %v", err)
 	}
 
-	// Copy with progress
-	buf := make([]byte, 1024)
+	buf := make([]byte, 1024*32) // 32KB buffer
 	var downloaded int64
 	for {
 		n, err := resp.Body.Read(buf)
@@ -106,22 +129,22 @@ func DoAppUpdate(url string, progress func(float64)) error {
 	}
 	out.Close()
 
-	// 2. Replace
-	if runtime.GOOS == "windows" {
-		// Windows can't delete running exe.
-		// We rename running to .old, move .new to .exe
-		oldPath := executable + ".old"
-		os.Rename(executable, oldPath)
-		if err := os.Rename(newPath, executable); err != nil {
-			return err
-		}
-		// Note: User needs to restart manually or we trigger a restart command
-	} else {
-		// Linux allows overwriting running binaries (mostly)
+	// 3. Make Executable
+	if runtime.GOOS != "windows" {
 		if err := os.Chmod(newPath, 0755); err != nil {
 			return err
 		}
-		if err := os.Rename(newPath, executable); err != nil {
+	}
+
+	// 4. Swap Files
+	if runtime.GOOS == "windows" {
+		oldPath := targetPath + ".old"
+		os.Rename(targetPath, oldPath)
+		if err := os.Rename(newPath, targetPath); err != nil {
+			return err
+		}
+	} else {
+		if err := os.Rename(newPath, targetPath); err != nil {
 			return err
 		}
 	}
@@ -131,8 +154,18 @@ func DoAppUpdate(url string, progress func(float64)) error {
 
 // RestartApp attempts to restart the application
 func RestartApp() {
-	executable, _ := os.Executable()
-	cmd := exec.Command(executable)
+	var cmd *exec.Cmd
+
+	if isAppImage() {
+		// Relaunch the AppImage file
+		appImage := os.Getenv("APPIMAGE")
+		cmd = exec.Command(appImage)
+	} else {
+		// Relaunch binary
+		executable, _ := os.Executable()
+		cmd = exec.Command(executable)
+	}
+
 	cmd.Start()
 	os.Exit(0)
 }

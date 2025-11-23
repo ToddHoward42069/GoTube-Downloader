@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=GoTube
-Comment=A resilient, cross-platform YouTube downloader built with Go and Fyne.
-Exec=gotube
-Icon=gotube
-Terminal=false
-Categories=Video;Network;

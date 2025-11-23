@@ -1,5 +1,8 @@
 package models
 
+// Set by build flags (e.g., -ldflags "-X gotube/internal/models.AppVersion=v1.5.0")
+var AppVersion = "v0.0.0-dev"
+
 type DownloadConfig struct {
 	URL             string
 	OutputPath      string
@@ -11,24 +14,14 @@ type DownloadConfig struct {
 	Client          string
 	CookiesPath     string
 	SafeMode        bool
-
-	// Playlist Logic
-	IsPlaylist    bool
-	PlaylistItems string // e.g. "1,2,5-10"
-
-	// Subtitles
-	EmbedSubs   bool
-	AutoSubs    bool
-	SubLanguage string
+	IsPlaylist      bool
+	PlaylistItems   string
+	EmbedSubs       bool
+	AutoSubs        bool
+	SubLanguage     string
 }
 
-// Represents a single video inside a playlist
-type PlaylistEntry struct {
-	ID    string `json:"id"`
-	Title string `json:"title"`
-	// Duration might be null in flat-playlist, so we omit it to be safe
-}
-
+// ... (Rest of the file remains the same: VideoMetadata, ProgressUpdate, etc.)
 type VideoMetadata struct {
 	ID           string          `json:"id"`
 	Title        string          `json:"title"`
@@ -37,7 +30,12 @@ type VideoMetadata struct {
 	ThumbnailURL string          `json:"thumbnail"`
 	Type         string          `json:"_type"`
 	EntryCount   int             `json:"playlist_count"`
-	Entries      []PlaylistEntry `json:"entries"` // The list of videos
+	Entries      []PlaylistEntry `json:"entries"`
+}
+
+type PlaylistEntry struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
 }
 
 type ProgressUpdate struct {

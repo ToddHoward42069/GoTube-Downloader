@@ -41,7 +41,7 @@ func StartApp(a fyne.App) {
 	if len(iconData) > 0 {
 		a.SetIcon(fyne.NewStaticResource("icon.svg", iconData))
 	}
-	w := a.NewWindow("GoTube")
+	w := a.NewWindow("GoTube " + models.AppVersion) // Show version in title
 	w.Resize(fyne.NewSize(500, 730))
 
 	db, _ := database.InitDB()
@@ -76,36 +76,18 @@ func StartApp(a fyne.App) {
 	historyTab := buildHistoryTab(ctx)
 	settingsTab := buildSettingsTab(ctx)
 
-	// Shared Footer Components
+	// Footer
 	viewLogsBtn := widget.NewButton("", func() { showLogs(ctx) })
 	statusLabel := widget.NewLabelWithData(ctx.Status)
 	statusLabel.Alignment = fyne.TextAlignCenter
 	progressContainer := container.NewPadded(widget.NewProgressBarWithData(ctx.Progress))
 
-	// --- Custom Footer for Main Tab ---
-	// Layout: [View Logs] [Download]
-	footer1 := container.NewVBox(
-		widget.NewSeparator(),
-		statusLabel,
-		progressContainer,
-		container.NewGridWithColumns(2, viewLogsBtn, mainBtn),
-	)
+	footer1 := container.NewVBox(widget.NewSeparator(), statusLabel, progressContainer, container.NewGridWithColumns(2, viewLogsBtn, mainBtn))
 
-	// --- Custom Footer for Batch Tab ---
-	// Same layout, different action button
-	// Note: We can't reuse the exact same widget instance in two places in Fyne safely if switching rapidly
-	// But viewLogsBtn is a button, so it can only be in one parent.
-	// We need a second Logs button for the second tab.
+	// Button for Batch Footer (Needs clone)
 	viewLogsBtn2 := widget.NewButton("", func() { showLogs(ctx) })
+	footer2 := container.NewVBox(widget.NewSeparator(), statusLabel, progressContainer, container.NewGridWithColumns(2, viewLogsBtn2, batchBtn))
 
-	footer2 := container.NewVBox(
-		widget.NewSeparator(),
-		statusLabel, // Labels/Bars can be reused usually as they are just renderers of data
-		progressContainer,
-		container.NewGridWithColumns(2, viewLogsBtn2, batchBtn),
-	)
-
-	// Wrap content
 	t1Content := container.NewBorder(nil, container.NewPadded(footer1), nil, nil, mainTab)
 	t2Content := container.NewBorder(nil, container.NewPadded(footer2), nil, nil, batchTab)
 
@@ -116,7 +98,6 @@ func StartApp(a fyne.App) {
 
 	tabs := container.NewAppTabs(t1, t2, t3, t4)
 
-	// Global Update
 	updateAllTexts := func() {
 		mainUpdate()
 		batchUpdate()
@@ -131,7 +112,6 @@ func StartApp(a fyne.App) {
 
 	ctx.App.Metadata().Custom["updateTexts"] = "true"
 
-	// Log Ticker
 	go func() {
 		ticker := time.NewTicker(100 * time.Millisecond)
 		ctx.Console = widget.NewMultiLineEntry()
@@ -147,13 +127,50 @@ func StartApp(a fyne.App) {
 		}
 	}()
 
+	// Inject Updater into Settings Tab
 	t4.Content = buildSettingsTabWithCallback(ctx, updateAllTexts)
+
+	// --- AUTO UPDATE CHECK ON STARTUP ---
+	go func() {
+		// Wait a second for UI to render
+		time.Sleep(1 * time.Second)
+		newVer, downloadUrl, err := updater.CheckAppUpdate()
+		if err == nil && newVer != "" {
+			dialog.ShowConfirm("Update Available",
+				"Version "+newVer+" is available. Update now?",
+				func(b bool) {
+					if b {
+						performAppUpdate(ctx, downloadUrl)
+					}
+				}, w)
+		}
+	}()
 
 	w.SetContent(tabs)
 	w.ShowAndRun()
 }
 
-// Helper Builders
+// Helper to run the update process with UI feedback
+func performAppUpdate(ctx *AppContext, url string) {
+	p := dialog.NewProgress("Updating App", "Downloading...", ctx.Win)
+	p.Show()
+
+	go func() {
+		err := updater.DoAppUpdate(url, func(f float64) {
+			p.SetValue(f)
+		})
+		p.Hide()
+
+		if err != nil {
+			dialog.ShowError(err, ctx.Win)
+		} else {
+			dialog.ShowInformation("Success", "Update complete. The app will restart.", ctx.Win)
+			time.Sleep(2 * time.Second)
+			updater.RestartApp()
+		}
+	}()
+}
+
 func buildSettingsTabWithCallback(ctx *AppContext, updateFunc func()) fyne.CanvasObject {
 	langSelect := widget.NewSelect([]string{"English", "German"}, nil)
 	if ctx.Settings.Language == "German" {
@@ -162,7 +179,8 @@ func buildSettingsTabWithCallback(ctx *AppContext, updateFunc func()) fyne.Canva
 		langSelect.Selected = "English"
 	}
 
-	updateBtn := widget.NewButton("Update Core", func() {
+	// Button to update yt-dlp (Core)
+	updateCoreBtn := widget.NewButton("Update Core (yt-dlp)", func() {
 		p := dialog.NewProgressInfinite("Updating", "Checking GitHub...", ctx.Win)
 		p.Show()
 		go func() {
@@ -176,6 +194,30 @@ func buildSettingsTabWithCallback(ctx *AppContext, updateFunc func()) fyne.Canva
 		}()
 	})
 
+	// Button to update GoTube (App)
+	updateAppBtn := widget.NewButton("Check for App Updates", func() {
+		p := dialog.NewProgressInfinite("Checking", "Contacting GitHub...", ctx.Win)
+		p.Show()
+		go func() {
+			newVer, downloadUrl, err := updater.CheckAppUpdate()
+			p.Hide()
+			if err != nil {
+				dialog.ShowError(err, ctx.Win)
+				return
+			}
+			if newVer == "" {
+				dialog.ShowInformation("Up to Date", "You are using the latest version ("+models.AppVersion+")", ctx.Win)
+				return
+			}
+
+			dialog.ShowConfirm("Update Available", "Version "+newVer+" is available. Download now?", func(b bool) {
+				if b {
+					performAppUpdate(ctx, downloadUrl)
+				}
+			}, ctx.Win)
+		}()
+	})
+
 	langSelect.OnChanged = func(s string) {
 		locales.SetLanguage(s)
 		ctx.DB.SaveSetting("Language", s)
@@ -186,7 +228,10 @@ func buildSettingsTabWithCallback(ctx *AppContext, updateFunc func()) fyne.Canva
 		widget.NewLabel("Language"), langSelect,
 		widget.NewSeparator(),
 		widget.NewLabel("Core: "+ctx.BinMgr.GetYtDlpPath()),
-		updateBtn,
+		updateCoreBtn,
+		widget.NewSeparator(),
+		widget.NewLabel("App Version: "+models.AppVersion),
+		updateAppBtn,
 	)))
 }
 

@@ -2,23 +2,22 @@
 
 # Config
 APP_NAME="gotube"
-VERSION="1.0.0"
+VERSION="1.5.0" # Bumped version
 DESCRIPTION="A resilient, cross-platform YouTube downloader built with Go and Fyne."
-MAINTAINER="GoTube Developer <dev@gotube.local>"
+MAINTAINER="GoTube Developer"
 ARCH="amd64" 
 
 # Colors
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 RED='\033[0;31m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 # Flags
 BUILD_DEB=false
 BUILD_APPIMAGE=false
 BUILD_WINDOWS=false
 
-# Parse Arguments
 for arg in "$@"
 do
     case $arg in
@@ -26,45 +25,26 @@ do
         --appimage) BUILD_APPIMAGE=true ;;
         --windows) BUILD_WINDOWS=true ;;
         --all) BUILD_DEB=true; BUILD_APPIMAGE=true; BUILD_WINDOWS=true ;;
-        --help)
-        echo "Usage: ./build.sh [options]"
-        echo "Options:"
-        echo "  (default)   Build Linux binary only"
-        echo "  --windows   Build Windows .exe (requires mingw-w64-gcc)"
-        echo "  --deb       Build .deb package"
-        echo "  --appimage  Build .AppImage file"
-        echo "  --all       Build everything"
-        exit 0
-        ;;
     esac
 done
 
-# --- 1. Clean & Tidy ---
 echo -e "${BLUE}--- Cleaning up ---${NC}"
 go clean
 rm -rf dist
-rm -f $APP_NAME $APP_NAME.exe
 mkdir -p dist
 
 echo -e "${BLUE}--- Tidy Modules ---${NC}"
 go mod tidy
 
-# --- 2. Assets Generation (SVG) ---
-echo -e "${BLUE}--- Generating SVG Icon ---${NC}"
-
-generate_icon() {
+# Generate Icon
 cat <<EOF > internal/gui/icon.svg
 <svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
   <rect x="32" y="80" width="448" height="352" rx="64" ry="64" fill="#00c7ff"/>
   <path d="M352 256L192 352V160L352 256Z" fill="#FFFFFF"/>
 </svg>
 EOF
-}
-
-generate_icon
 cp internal/gui/icon.svg icon.svg
 
-# Create .desktop file content
 create_desktop_file() {
     cat <<EOF > gotube.desktop
 [Desktop Entry]
@@ -78,58 +58,31 @@ Categories=Video;Network;
 EOF
 }
 
-# --- 3. Build Linux Binary (Default) ---
-if [ "$BUILD_WINDOWS" = false ]; then
-    echo -e "${GREEN}--- Building Linux Binary ---${NC}"
-    go build -ldflags "-s -w" -o $APP_NAME ./cmd/gotube
+# --- 1. Linux Binary (Standardized Name) ---
+echo -e "${GREEN}--- Building Linux Binary ---${NC}"
+LINUX_BIN="gotube-linux-amd64"
+go build -ldflags "-s -w -X 'gotube/internal/models.AppVersion=v$VERSION'" -o dist/$LINUX_BIN ./cmd/gotube
 
-    if [ ! -f "$APP_NAME" ]; then
-        echo -e "${RED}Linux build failed!${NC}"
-        exit 1
-    fi
-fi
-
-# --- 4. Build Windows Binary ---
+# --- 2. Windows Binary (Standardized Name) ---
 if [ "$BUILD_WINDOWS" = true ]; then
     echo -e "${GREEN}--- Building Windows Binary ---${NC}"
-    
-    # Check for Mingw
+    WIN_BIN="gotube-windows-amd64.exe"
     if ! command -v x86_64-w64-mingw32-gcc &> /dev/null; then
-        echo -e "${RED}Error: MinGW compiler not found.${NC}"
-        echo "Please install: sudo pacman -S mingw-w64-gcc"
-        exit 1
-    fi
-
-    # Build with CGO enabled for Fyne
-    CGO_ENABLED=1 GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc \
-    go build -ldflags "-s -w -H=windowsgui" -o $APP_NAME.exe ./cmd/gotube
-
-    if [ -f "$APP_NAME.exe" ]; then
-        echo -e "${GREEN}Success: $APP_NAME.exe${NC}"
-        # Move to dist for cleaner output
-        mv $APP_NAME.exe dist/
+        echo -e "${RED}MinGW not found. Skipping Windows build.${NC}"
     else
-        echo -e "${RED}Windows build failed!${NC}"
-        exit 1
+        CGO_ENABLED=1 GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc \
+        go build -ldflags "-s -w -H=windowsgui -X 'gotube/internal/models.AppVersion=v$VERSION'" -o dist/$WIN_BIN ./cmd/gotube
     fi
 fi
 
-# --- 5. Build .DEB ---
+# --- 3. DEB Package ---
 if [ "$BUILD_DEB" = true ]; then
-    echo -e "${GREEN}--- Building .DEB Package ---${NC}"
-    
-    # Ensure linux binary exists if we skipped default build
-    if [ ! -f "$APP_NAME" ]; then
-        go build -ldflags "-s -w" -o $APP_NAME ./cmd/gotube
-    fi
-
+    echo -e "${GREEN}--- Building .DEB ---${NC}"
     DEB_DIR="dist/deb/${APP_NAME}_${VERSION}_${ARCH}"
-    mkdir -p "$DEB_DIR/usr/local/bin"
-    mkdir -p "$DEB_DIR/usr/share/applications"
-    mkdir -p "$DEB_DIR/usr/share/icons/hicolor/scalable/apps"
-    mkdir -p "$DEB_DIR/DEBIAN"
-
-    cp $APP_NAME "$DEB_DIR/usr/local/bin/"
+    mkdir -p "$DEB_DIR/usr/local/bin" "$DEB_DIR/usr/share/applications" "$DEB_DIR/usr/share/icons/hicolor/scalable/apps" "$DEB_DIR/DEBIAN"
+    
+    # Use the linux binary we just built
+    cp dist/$LINUX_BIN "$DEB_DIR/usr/local/bin/$APP_NAME"
     chmod +x "$DEB_DIR/usr/local/bin/$APP_NAME"
     
     create_desktop_file
@@ -146,33 +99,25 @@ Maintainer: $MAINTAINER
 Description: $DESCRIPTION
 Depends: libc6, libgl1, libx11-6
 EOF
-
     if command -v dpkg-deb &> /dev/null; then
         dpkg-deb --build "$DEB_DIR"
-        echo -e "${GREEN}Success: dist/deb/${APP_NAME}_${VERSION}_${ARCH}.deb${NC}"
-    else
-        echo -e "${RED}Error: 'dpkg-deb' not found.${NC}"
+        # Rename final deb for consistency
+        mv dist/deb/*.deb dist/gotube_${VERSION}_amd64.deb
+        rm -rf dist/deb
     fi
 fi
 
-# --- 6. Build AppImage ---
+# --- 4. AppImage ---
 if [ "$BUILD_APPIMAGE" = true ]; then
     echo -e "${GREEN}--- Building AppImage ---${NC}"
-    
-    if [ ! -f "$APP_NAME" ]; then
-        go build -ldflags "-s -w" -o $APP_NAME ./cmd/gotube
-    fi
-    
     APPDIR="dist/AppDir"
     mkdir -p "$APPDIR/usr/bin"
-    
-    cp $APP_NAME "$APPDIR/usr/bin/gotube"
+    cp dist/$LINUX_BIN "$APPDIR/usr/bin/gotube"
     cp icon.svg "$APPDIR/gotube.svg"
     cp icon.svg "$APPDIR/.DirIcon"
-    
     create_desktop_file
     mv gotube.desktop "$APPDIR/gotube.desktop"
-
+    
     cat <<EOF > "$APPDIR/AppRun"
 #!/bin/bash
 exec "\$APPDIR/usr/bin/gotube" "\$@"
@@ -181,13 +126,12 @@ EOF
 
     TOOL_URL="https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
     if [ ! -f "appimagetool" ]; then
-        echo "Downloading AppImageTool..."
         wget -q -O appimagetool "$TOOL_URL"
         chmod +x appimagetool
     fi
-
-    ARCH=x86_64 ./appimagetool "$APPDIR" "dist/${APP_NAME}-${VERSION}-x86_64.AppImage"
-    echo -e "${GREEN}Success: dist/${APP_NAME}-${VERSION}-x86_64.AppImage${NC}"
+    ARCH=x86_64 ./appimagetool "$APPDIR" "dist/GoTube-${VERSION}-x86_64.AppImage"
+    rm -rf "$APPDIR"
 fi
 
-echo -e "${BLUE}--- Done ---${NC}"
+echo -e "${BLUE}--- Build Complete. Assets in /dist ---${NC}"
+ls -lh dist/

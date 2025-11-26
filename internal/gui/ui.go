@@ -9,6 +9,7 @@ import (
 	"gotube/internal/updater"
 	"gotube/internal/utils"
 	"os"
+	"strings"
 	"time"
 
 	_ "embed"
@@ -121,7 +122,10 @@ func StartApp(a fyne.App) {
 				text := ctx.Logger.String()
 				ctx.Logger.MarkRead()
 				ctx.Console.SetText(text)
-				ctx.Console.CursorRow = len(text)
+				// Count actual lines and scroll to bottom-left
+				lineCount := strings.Count(text, "\n")
+				ctx.Console.CursorRow = lineCount
+				ctx.Console.CursorColumn = 0
 				ctx.Console.Refresh()
 			}
 		}
@@ -136,13 +140,18 @@ func StartApp(a fyne.App) {
 		time.Sleep(1 * time.Second)
 		newVer, downloadUrl, err := updater.CheckAppUpdate()
 		if err == nil && newVer != "" {
-			dialog.ShowConfirm("Update Available",
-				"Version "+newVer+" is available. Update now?",
+			message := widget.NewLabel(fmt.Sprintf(locales.Get("update_version_msg"), newVer))
+			d := dialog.NewCustomConfirm(
+				locales.Get("update_available"),
+				locales.Get("btn_yes"),
+				locales.Get("btn_no"),
+				message,
 				func(b bool) {
 					if b {
 						performAppUpdate(ctx, downloadUrl)
 					}
 				}, w)
+			d.Show()
 		}
 	}()
 
@@ -152,7 +161,7 @@ func StartApp(a fyne.App) {
 
 // Helper to run the update process with UI feedback
 func performAppUpdate(ctx *AppContext, url string) {
-	p := dialog.NewProgress("Updating App", "Downloading...", ctx.Win)
+	p := dialog.NewProgress(locales.Get("update_app_title"), locales.Get("update_downloading"), ctx.Win)
 	p.Show()
 
 	go func() {
@@ -164,7 +173,7 @@ func performAppUpdate(ctx *AppContext, url string) {
 		if err != nil {
 			dialog.ShowError(err, ctx.Win)
 		} else {
-			dialog.ShowInformation("Success", "Update complete. The app will restart.", ctx.Win)
+			dialog.ShowInformation(locales.Get("update_success"), locales.Get("update_complete_msg"), ctx.Win)
 			time.Sleep(2 * time.Second)
 			updater.RestartApp()
 		}
@@ -179,9 +188,14 @@ func buildSettingsTabWithCallback(ctx *AppContext, updateFunc func()) fyne.Canva
 		langSelect.Selected = "English"
 	}
 
+	// Dynamic labels for localization
+	langLabel := widget.NewLabel(locales.Get("language_label"))
+	coreLabel := widget.NewLabel(locales.Get("core_label") + " " + ctx.BinMgr.GetYtDlpPath())
+	appVersionLabel := widget.NewLabel(locales.Get("app_version_label") + " " + models.AppVersion)
+
 	// Button to update yt-dlp (Core)
-	updateCoreBtn := widget.NewButton("Update Core (yt-dlp)", func() {
-		p := dialog.NewProgressInfinite("Updating", "Checking GitHub...", ctx.Win)
+	updateCoreBtn := widget.NewButton(locales.Get("update_core_btn"), func() {
+		p := dialog.NewProgressInfinite(locales.Get("update_app_title"), locales.Get("update_core_checking"), ctx.Win)
 		p.Show()
 		go func() {
 			err := ctx.BinMgr.UpdateBinary(func(msg string) { fmt.Println(msg) })
@@ -189,14 +203,14 @@ func buildSettingsTabWithCallback(ctx *AppContext, updateFunc func()) fyne.Canva
 			if err != nil {
 				dialog.ShowError(err, ctx.Win)
 			} else {
-				dialog.ShowInformation("Success", "Core updated.", ctx.Win)
+				dialog.ShowInformation(locales.Get("update_success"), locales.Get("update_core_success"), ctx.Win)
 			}
 		}()
 	})
 
 	// Button to update GoTube (App)
-	updateAppBtn := widget.NewButton("Check for App Updates", func() {
-		p := dialog.NewProgressInfinite("Checking", "Contacting GitHub...", ctx.Win)
+	updateAppBtn := widget.NewButton(locales.Get("update_app_btn"), func() {
+		p := dialog.NewProgressInfinite(locales.Get("update_checking"), locales.Get("update_contacting"), ctx.Win)
 		p.Show()
 		go func() {
 			newVer, downloadUrl, err := updater.CheckAppUpdate()
@@ -206,31 +220,44 @@ func buildSettingsTabWithCallback(ctx *AppContext, updateFunc func()) fyne.Canva
 				return
 			}
 			if newVer == "" {
-				dialog.ShowInformation("Up to Date", "You are using the latest version ("+models.AppVersion+")", ctx.Win)
+				dialog.ShowInformation(locales.Get("update_up_to_date"), fmt.Sprintf(locales.Get("update_latest_msg"), models.AppVersion), ctx.Win)
 				return
 			}
 
-			dialog.ShowConfirm("Update Available", "Version "+newVer+" is available. Download now?", func(b bool) {
-				if b {
-					performAppUpdate(ctx, downloadUrl)
-				}
-			}, ctx.Win)
+			message := widget.NewLabel(fmt.Sprintf(locales.Get("update_version_msg"), newVer))
+			d := dialog.NewCustomConfirm(
+				locales.Get("update_available"),
+				locales.Get("btn_yes"),
+				locales.Get("btn_no"),
+				message,
+				func(b bool) {
+					if b {
+						performAppUpdate(ctx, downloadUrl)
+					}
+				}, ctx.Win)
+			d.Show()
 		}()
 	})
 
 	langSelect.OnChanged = func(s string) {
 		locales.SetLanguage(s)
 		ctx.DB.SaveSetting("Language", s)
+		// Update settings tab labels
+		langLabel.SetText(locales.Get("language_label"))
+		coreLabel.SetText(locales.Get("core_label") + " " + ctx.BinMgr.GetYtDlpPath())
+		appVersionLabel.SetText(locales.Get("app_version_label") + " " + models.AppVersion)
+		updateCoreBtn.SetText(locales.Get("update_core_btn"))
+		updateAppBtn.SetText(locales.Get("update_app_btn"))
 		updateFunc()
 	}
 
 	return container.NewPadded(widget.NewCard(locales.Get("tab_system"), "", container.NewVBox(
-		widget.NewLabel("Language"), langSelect,
+		langLabel, langSelect,
 		widget.NewSeparator(),
-		widget.NewLabel("Core: "+ctx.BinMgr.GetYtDlpPath()),
+		coreLabel,
 		updateCoreBtn,
 		widget.NewSeparator(),
-		widget.NewLabel("App Version: "+models.AppVersion),
+		appVersionLabel,
 		updateAppBtn,
 	)))
 }
@@ -240,7 +267,7 @@ func buildSettingsTab(ctx *AppContext) fyne.CanvasObject {
 }
 
 func showLogs(ctx *AppContext) {
-	d := dialog.NewCustom("Logs", "Close", container.NewPadded(ctx.Console), ctx.Win)
+	d := dialog.NewCustom(locales.Get("logs_title"), locales.Get("logs_close"), container.NewPadded(ctx.Console), ctx.Win)
 	d.Resize(fyne.NewSize(700, 500))
 	d.Show()
 }

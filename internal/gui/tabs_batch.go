@@ -5,6 +5,7 @@ import (
 	"gotube/internal/locales"
 	"gotube/internal/models"
 	"strings"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -133,11 +134,28 @@ func buildBatchTab(ctx *AppContext) (fyne.CanvasObject, *widget.Button, func()) 
 
 	inputCard := widget.NewCard("Input List", "", container.NewPadded(batchEntry))
 
-	content := container.NewVScroll(container.NewPadded(container.NewVBox(
+	scrollContainer := container.NewVScroll(container.NewPadded(container.NewVBox(
 		inputCard,
 		configCard,
 		advExpander,
 	)))
+
+	// Monitor accordion state to reset scroll when closed
+	go func() {
+		wasOpen := false
+		for {
+			time.Sleep(100 * time.Millisecond)
+			isOpen := len(advExpander.Items) > 0 && advExpander.Items[0].Open
+			if wasOpen && !isOpen {
+				// Accordion just closed, reset scroll to top
+				scrollContainer.Offset = fyne.NewPos(0, 0)
+				scrollContainer.Refresh()
+			}
+			wasOpen = isOpen
+		}
+	}()
+
+	content := scrollContainer
 
 	// Updater
 	updateText := func() {

@@ -319,7 +319,24 @@ func buildMainTab(ctx *AppContext) (fyne.CanvasObject, *widget.Button, func()) {
 	)
 
 	// Return content without the button (button is returned separately)
-	content := container.NewVScroll(container.NewPadded(formContent))
+	scrollContainer := container.NewVScroll(container.NewPadded(formContent))
+
+	// Monitor accordion state to reset scroll when closed
+	go func() {
+		wasOpen := false
+		for {
+			time.Sleep(100 * time.Millisecond)
+			isOpen := len(advExpander.Items) > 0 && advExpander.Items[0].Open
+			if wasOpen && !isOpen {
+				// Accordion just closed, reset scroll to top
+				scrollContainer.Offset = fyne.NewPos(0, 0)
+				scrollContainer.Refresh()
+			}
+			wasOpen = isOpen
+		}
+	}()
+
+	content := scrollContainer
 
 	// Updater closure
 	updateText := func() {

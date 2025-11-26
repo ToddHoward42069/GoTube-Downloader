@@ -41,6 +41,29 @@ var en = map[string]string{
 	"pl_confirm":     "Confirm",
 	"pl_select_all":  "Select All",
 	"pl_select_none": "Select None",
+
+	// App Updater
+	"update_available":     "Update Available",
+	"update_version_msg":   "Version %s is available. Update now?",
+	"update_downloading":   "Downloading...",
+	"update_app_title":     "Updating App",
+	"update_success":       "Success",
+	"update_complete_msg":  "Update complete. The app will restart.",
+	"update_checking":      "Checking",
+	"update_contacting":    "Contacting GitHub...",
+	"update_up_to_date":    "Up to Date",
+	"update_latest_msg":    "You are using the latest version (%s)",
+	"update_core_btn":      "Update Core (yt-dlp)",
+	"update_app_btn":       "Check for App Updates",
+	"update_core_checking": "Checking GitHub...",
+	"update_core_success":  "Core updated.",
+	"language_label":       "Language",
+	"core_label":           "Core:",
+	"app_version_label":    "App Version:",
+	"logs_title":           "Logs",
+	"logs_close":           "Close",
+	"btn_yes":              "Yes",
+	"btn_no":               "No",
 }
 
 var de = map[string]string{
@@ -82,6 +105,29 @@ var de = map[string]string{
 	"pl_confirm":     "Bestätigen",
 	"pl_select_all":  "Alle",
 	"pl_select_none": "Keine",
+
+	// App Updater
+	"update_available":     "Update verfügbar",
+	"update_version_msg":   "Version %s ist verfügbar. Jetzt aktualisieren?",
+	"update_downloading":   "Wird heruntergeladen...",
+	"update_app_title":     "App aktualisieren",
+	"update_success":       "Erfolg",
+	"update_complete_msg":  "Update abgeschlossen. Die App wird neu gestartet.",
+	"update_checking":      "Prüfe",
+	"update_contacting":    "Kontaktiere GitHub...",
+	"update_up_to_date":    "Aktuell",
+	"update_latest_msg":    "Sie verwenden die neueste Version (%s)",
+	"update_core_btn":      "Core aktualisieren (yt-dlp)",
+	"update_app_btn":       "Nach App-Updates suchen",
+	"update_core_checking": "Prüfe GitHub...",
+	"update_core_success":  "Core aktualisiert.",
+	"language_label":       "Sprache",
+	"core_label":           "Core:",
+	"app_version_label":    "App-Version:",
+	"logs_title":           "Protokolle",
+	"logs_close":           "Schließen",
+	"btn_yes":              "Ja",
+	"btn_no":               "Nein",
 }
 
 func SetLanguage(lang string) {
